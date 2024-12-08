@@ -3,35 +3,38 @@ document.addEventListener('DOMContentLoaded', () => {
     const userInput = document.getElementById('user-input');
     const sendButton = document.getElementById('send-button');
 
-    // Chat history for context
+    // Chat history per la comunicazione con il backend
     let messageHistory = [
-        { role: "system", content: "Always answer in rhymes. Today is Thursday" }
+        {
+            role: "system",
+            content: `
+Tu sei un tutor orientatore serio e professionale, specializzato nel guidare studenti delle scuole verso scelte consapevoli per il loro percorso formativo e professionale. Rispondi in modo formale e ben strutturato.
+`
+        }
     ];
 
-    // Add initial bot message
-    addMessage('Ciao! Come posso aiutarti oggi?', 'bot');
+    // Aggiungi un messaggio iniziale
+    addMessage('Benvenuto! Sono qui per aiutarti a orientarti nel tuo percorso scolastico e professionale.', 'bot');
 
-    // Function to send messages to the chatbot
+    // Altezza dinamica per l'input utente
+    userInput.addEventListener('input', () => {
+    // Imposta un'altezza minima per prevenire contrazioni eccessive
+    userInput.style.height = 'auto';
+    userInput.style.height = `${Math.min(userInput.scrollHeight, 200)}px`; // Limita l'altezza a un massimo di 200px
+    });
+
+    // Invio messaggio
     async function sendMessage() {
         const message = userInput.value.trim();
         if (message) {
             try {
-                setInputState(true); // Disable input while processing
-                console.log('Messaggio utente:', message); // Log the user's message
-
-                // Add user's message to UI and history
+                setInputState(true); // Disabilita input durante l'elaborazione
                 addMessage(message, 'user');
                 messageHistory.push({ role: "user", content: message });
                 userInput.value = '';
+                userInput.style.height = 'auto'; // Resetta altezza dopo invio
 
-                // Create a response message container
-                const responseDiv = document.createElement('div');
-                responseDiv.classList.add('message', 'bot');
-                chatMessages.appendChild(responseDiv);
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-
-                // Send request to the backend
-                console.log('Invio richiesta al backend...');
+                // Invio al backend
                 const response = await fetch('http://localhost:8000/v1/chat/completions', {
                     method: 'POST',
                     headers: {
@@ -41,9 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify({
                         model: "hugging-quants/llama-3.2-3b-instruct",
                         messages: messageHistory,
-                        temperature: 0.7,
-                        max_tokens: -1,
-                        stream: false
+                        temperature: 0.7
                     })
                 });
 
@@ -51,41 +52,71 @@ document.addEventListener('DOMContentLoaded', () => {
                     throw new Error(`HTTP error! Status: ${response.status}`);
                 }
 
-                // Parse the response
                 const responseData = await response.json();
-                console.log('Risposta ricevuta dal backend:', responseData); // Log the backend response
+                console.log('Risposta ricevuta dal backend:', responseData);
 
-                // Extract the bot's response
-                const botResponse = responseData.choices[0].message.content;
-                console.log('Risposta elaborata:', botResponse); // Log the processed response
+                const botResponse = responseData.llm_response;
+                const contextChunks = responseData.context_chunks;
 
-                // Display the bot's response
-                responseDiv.textContent = botResponse;
-                chatMessages.scrollTop = chatMessages.scrollHeight;
+                // Mostra la risposta principale
+                addMessage(botResponse, 'bot');
 
-                // Add bot's response to the message history
+                // Mostra i chunk di contesto se disponibili
+                if (contextChunks && contextChunks.length > 0) {
+                    addContextChunks(contextChunks);
+                }
+
+                // Aggiungi solo la risposta principale alla cronologia
                 messageHistory.push({ role: "assistant", content: botResponse });
 
             } catch (error) {
                 console.error('Errore durante la comunicazione con il backend:', error);
                 addMessage('Mi dispiace, si è verificato un errore nella comunicazione con il modello.', 'bot');
             } finally {
-                setInputState(false); // Re-enable input
-                console.log('Input riabilitato.'); // Log re-enabling input
+                setInputState(false); // Riabilita input
             }
         }
     }
 
-    // Function to add a message to the chat
+    // Funzione per aggiungere un messaggio alla chat
     function addMessage(text, sender) {
         const messageDiv = document.createElement('div');
         messageDiv.classList.add('message', sender);
-        messageDiv.textContent = text;
+        messageDiv.innerHTML = convertMarkdownToHtml(text);
         chatMessages.appendChild(messageDiv);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    // Event listeners for the chatbot
+    // Funzione per aggiungere chunk di contesto
+    function addContextChunks(contextChunks) {
+        const wrapper = document.createElement('div');
+        wrapper.classList.add('context-wrapper');
+
+        const title = document.createElement('div');
+        title.textContent = "Contesto Recuperato:";
+        title.classList.add('context-title');
+        wrapper.appendChild(title);
+
+        contextChunks.forEach((chunk, index) => {
+            const detailsElement = document.createElement('details');
+            detailsElement.classList.add('context-details');
+
+            const summaryElement = document.createElement('summary');
+            summaryElement.textContent = `Chunk ${index + 1} (Fonte: ${chunk.source.filename}, Pagina: ${chunk.source.page_number})`;
+            summaryElement.classList.add('context-summary');
+            detailsElement.appendChild(summaryElement);
+
+            const preElement = document.createElement('pre');
+            preElement.textContent = chunk.content.trim();
+            detailsElement.appendChild(preElement);
+
+            wrapper.appendChild(detailsElement);
+        });
+
+        chatMessages.appendChild(wrapper);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
     sendButton.addEventListener('click', sendMessage);
     userInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -94,9 +125,26 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Function to disable/enable input while processing
     function setInputState(disabled) {
         userInput.disabled = disabled;
         sendButton.disabled = disabled;
+    }
+
+    // Funzione per convertire il testo Markdown in HTML
+    function convertMarkdownToHtml(markdownText) {
+        let html = markdownText;
+
+        // Titoli
+        html = html.replace(/^###\s+(.*)$/gm, "<h3>$1</h3>");
+        html = html.replace(/^##\s+(.*)$/gm, "<h2>$1</h2>");
+        html = html.replace(/^#\s+(.*)$/gm, "<h1>$1</h1>");
+
+        // Grassetto
+        html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+
+        // Corsivo
+        html = html.replace(/\*(.*?)\*/g, "<em>$1</em>");
+
+        return html;
     }
 });

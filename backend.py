@@ -23,7 +23,7 @@ app = FastAPI()
 # Configurazione CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Consenti richieste da tutte le origini (utile per sviluppo locale)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -86,20 +86,28 @@ def extract_content(file_path: str) -> List[str]:
         logger.error(f"Errore nell'estrazione del contenuto da {file_path}: {e}")
         raise HTTPException(status_code=500, detail=f"Errore nell'estrazione del contenuto da {file_path}")
 
-# Funzione per recuperare contesto dal database FAISS
-def retrieve_context(query: str, k: int = 5) -> str:
+# Funzione per recuperare contesto dal database FAISS (k=5 fisso)
+def retrieve_context(query: str) -> List[dict]:
     if not faiss_index:
         logger.warning("Database FAISS non caricato. Nessun contesto disponibile.")
-        return ""
+        return []
     try:
-        docs = faiss_index.similarity_search(query, k=k)
+        docs = faiss_index.similarity_search(query, k=5)
         logger.info(f"Documenti recuperati: {docs}")
-        context = "\n".join([doc.page_content for doc in docs])
-        return context
+        return [
+            {
+                "content": doc.page_content,
+                "source": {
+                    "filename": doc.metadata["filename"],
+                    "page_number": doc.metadata["page_number"]
+                }
+            }
+            for doc in docs
+        ]
     except Exception as e:
         logger.error(f"Errore nel recupero del contesto: {str(e)}")
-        return ""
-    
+        return []
+
 @app.get("/test-faiss/")
 def test_faiss():
     if not faiss_index:
@@ -140,7 +148,7 @@ async def upload_files(
             raise HTTPException(status_code=400, detail="Nessun documento valido trovato.")
 
         # Suddividi i documenti in chunk
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=50)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=50)
         splits = []
         for doc in all_documents:
             chunks = text_splitter.split_text(doc.page_content)
@@ -172,19 +180,35 @@ class ChatRequest(BaseModel):
     temperature: float = 0.7
     model: str = "hugging-quants/llama-3.2-3b-instruct"
 
-# Endpoint per completamento della chat
+# Endpoint per completamento della chat con fonti
 @app.post("/v1/chat/completions")
 async def chat_completion(request: ChatRequest):
     try:
         logger.info(f"Richiesta ricevuta: {request}")
         user_message = request.messages[-1].content
 
-        # Recupera il contesto dal database FAISS
-        context = retrieve_context(user_message)
+        # Recupera il contesto e le fonti dal database FAISS
+        context_with_sources = retrieve_context(user_message)
+        context_chunks = [
+            {
+                "content": item["content"],
+                "source": {
+                    "filename": item["source"]["filename"],
+                    "page_number": item["source"]["page_number"]
+                }
+            }
+            for item in context_with_sources
+        ]
+
+        # Costruisci il testo del contesto per il prompt
+        context_text = "\n".join([
+            f"{item['content']} (Fonte: {item['source']['filename']}, Pagina: {item['source']['page_number']})"
+            for item in context_with_sources
+        ])
 
         # Integra il contesto nei messaggi
         augmented_messages = [
-            {"role": "system", "content": f"Informazioni utili: {context}"},
+            {"role": "system", "content": f"Informazioni utili:\n{context_text}"},
         ] + [{"role": msg.role, "content": msg.content} for msg in request.messages]
 
         # Invio della richiesta al server LLM
@@ -203,7 +227,11 @@ async def chat_completion(request: ChatRequest):
         logger.info(f"Risposta ricevuta dal modello: {response_data}")
         bot_response = response_data["choices"][0]["message"]["content"]
 
-        return {"choices": [{"message": {"content": bot_response}}]}
+        # Restituisci separatamente il completamento e i chunk
+        return {
+            "llm_response": bot_response,
+            "context_chunks": context_chunks
+        }
     except Exception as e:
         logger.error(f"Errore nel completamento della chat: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Errore nel completamento della chat: {str(e)}")
