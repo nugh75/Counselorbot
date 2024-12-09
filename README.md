@@ -48,11 +48,7 @@ Before installing CounselorBot, ensure you have the following:
    ```
 
 2. **Setup the Backend**:
-   - Navigate to the backend directory:
-     ```bash
-     cd backend
-     ```
-   - Create a virtual environment and activate it:
+     - Create a virtual environment and activate it:
      ```bash
      python -m venv venv
      source venv/bin/activate  # On Windows, use venv\Scripts\activate
@@ -62,28 +58,11 @@ Before installing CounselorBot, ensure you have the following:
      pip install -r requirements.txt
      ```
 
-3. **Setup the Frontend**:
-   - Navigate to the frontend directory:
-     ```bash
-     cd ../frontend
-     ```
-   - Install Node.js dependencies:
-     ```bash
-     npm install
-     ```
-
-4. **Run the Application**:
+3. **Run the Application**:
    - Start the backend server:
      ```bash
-     cd ../backend
-     python app.py
+          python backend.py
      ```
-   - Start the frontend server:
-     ```bash
-     cd ../frontend
-     npm start
-     ```
-   - Access the application at `http://localhost:3000`.
 
 ## Development Status
 
@@ -91,37 +70,37 @@ CounselorBot is in active development. While some functionalities are operationa
 
 ### Features and Enhancements To Implement:
 
-[ ] **Responsive Design**:  
+[] **Responsive Design**:  
    Ensure the interface is accessible and usable across various devices, including mobile and tablets.
 
-[ ] **Chain of Thought (CoT) Integration**:  
+[] **Chain of Thought (CoT) Integration**:  
    Implement advanced reasoning techniques to break down complex problems into intermediate steps.
 
-[ ] **Enhanced Frontend Interface**:  
+[] **Enhanced Frontend Interface**:  
    Create a more intuitive and visually appealing design, including improvements in navigation and user experience.
 
-[ ] **Integration of Tree of Thoughts (ToT)**:  
+[] **Integration of Tree of Thoughts (ToT)**:  
    Allow exploration of multiple reasoning paths to improve the flexibility and depth of responses.
 
-[ ] **User Authentication**:  
+[] **User Authentication**:  
    Introduce login functionality to personalize the chatbot’s interactions and save progress.
 
-[ ] **Advanced Analytics Dashboard**:  
+[] **Advanced Analytics Dashboard**:  
    Provide educators with insights on student interactions and performance trends.
 
-[ ] **Multi-Language Support**:  
+[] **Multi-Language Support**:  
    Expand accessibility by adding support for multiple languages in both the interface and responses.
 
-[ ] **Context-Aware Feedback**:  
+[] **Context-Aware Feedback**:  
    Enhance responses based on real-time context, including specific questionnaire results or user queries.
 
-[ ] **Expanded Database for RAG**:  
+[] **Expanded Database for RAG**:  
    Broaden the range of indexed resources to improve the chatbot’s ability to provide accurate and relevant information.
 
-[ ] **Debugging Tool for Users**:  
+[] **Debugging Tool for Users**:  
    Allow users to report issues directly through the interface and suggest improvements for chatbot outputs.
 
-[ ] **Gamification Elements**:  
+[] **Gamification Elements**:  
    Introduce motivational features such as badges or progress tracking to encourage student engagement.
 
 ## Open Source and Collaboration
