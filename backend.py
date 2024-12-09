@@ -1,9 +1,11 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langchain.vectorstores import FAISS
-from langchain.embeddings.huggingface import HuggingFaceEmbeddings
+from langchain.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
+from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from typing import List
 from pydantic import BaseModel
 import os
@@ -11,7 +13,6 @@ import logging
 from PyPDF2 import PdfReader
 from docx import Document as DocxDocument
 from pptx import Presentation
-import requests
 from dotenv import load_dotenv
 
 # Configurazione logging
@@ -23,22 +24,15 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
-if not OPENAI_API_KEY or not ANTHROPIC_API_KEY:
-    logger.error("Le chiavi API non sono configurate correttamente nel file .env")
+if not OPENAI_API_KEY:
+    logger.error("La chiave API di OpenAI non è configurata correttamente nel file .env")
     raise RuntimeError("Configurazione API non valida")
 
-# Scegli il modello attivo decommentando uno dei seguenti
-# ACTIVE_MODEL = "gpt-4"
-# ACTIVE_API_URL = "https://api.openai.com/v1/chat/completions"
-
-# ACTIVE_MODEL = "claude-v1"
-# ACTIVE_API_URL = "https://api.anthropic.com/v1/complete"
-
-ACTIVE_MODEL = "local-llama"
-ACTIVE_API_URL = "http://localhost:1234/v1/chat/completions"
+# Scegli il modello attivo
+ACTIVE_MODEL = "gpt-4o-mini"  # Modello attivo: gpt-4o-mini di OpenAI
 
 # Configurazione embeddings e database
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 UPLOAD_FOLDER = "./uploads"
 DB_FOLDER = "./db"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -65,15 +59,16 @@ app.add_middleware(
 )
 
 # *********************************************************************
-# Funzione per gestire i modelli LLM dinamicamente
+# Funzione per gestire il modello LLM dinamicamente
 
-def choose_model():
-    if ACTIVE_MODEL == "gpt-4":
-        return {"url": ACTIVE_API_URL, "headers": {"Authorization": f"Bearer {OPENAI_API_KEY}"}}
-    elif ACTIVE_MODEL == "claude-v1":
-        return {"url": ACTIVE_API_URL, "headers": {"x-api-key": ANTHROPIC_API_KEY}}
-    elif ACTIVE_MODEL == "local-llama":
-        return {"url": ACTIVE_API_URL, "headers": {"Content-Type": "application/json"}}
+def get_llm():
+    if ACTIVE_MODEL == "gpt-4o-mini":
+        return ChatOpenAI(model="gpt-4o-mini", openai_api_key=OPENAI_API_KEY)
+    # Decomentare per utilizzare i modelli Anthropic:
+    # elif ACTIVE_MODEL == "claude-v1":
+    #     return ChatAnthropic(model="claude-v1", anthropic_api_key=ANTHROPIC_API_KEY)
+    # elif ACTIVE_MODEL == "claude-3.5-haiku":
+    #     return ChatAnthropic(model="claude-3.5-haiku", anthropic_api_key=ANTHROPIC_API_KEY)
     else:
         raise ValueError("Modello non supportato.")
 
@@ -91,29 +86,36 @@ def save_file(file: UploadFile, folder: str) -> str:
         raise HTTPException(status_code=500, detail=f"Errore nel salvataggio del file {file.filename}")
 
 # *********************************************************************
-# Funzione per estrarre contenuto dai file
+# Funzione per estrarre contenuto dai file e dividerlo in chunk
 
-def extract_content(file_path: str) -> List[str]:
+def extract_content(file_path: str) -> List[Document]:
     try:
         if file_path.endswith(".pdf"):
             reader = PdfReader(file_path)
-            return [page.extract_text() for page in reader.pages if page.extract_text()]
+            text = [page.extract_text() for page in reader.pages if page.extract_text()]
         elif file_path.endswith(".docx"):
             doc = DocxDocument(file_path)
-            return [para.text for para in doc.paragraphs if para.text.strip()]
+            text = [para.text for para in doc.paragraphs if para.text.strip()]
         elif file_path.endswith(".pptx"):
             ppt = Presentation(file_path)
-            content = []
+            text = []
             for slide in ppt.slides:
                 for shape in slide.shapes:
                     if hasattr(shape, "text"):
-                        content.append(shape.text)
-            return content
+                        text.append(shape.text)
         elif file_path.endswith(".txt"):
             with open(file_path, "r", encoding="utf-8") as f:
-                return f.readlines()
+                text = f.readlines()
         else:
             raise ValueError("Formato file non supportato")
+
+        # Combina il contenuto in un unico testo e suddividilo in chunk
+        text_combined = "\n".join(text)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=100)
+        chunks = text_splitter.split_text(text_combined)
+
+        return [Document(page_content=chunk) for chunk in chunks]
+
     except Exception as e:
         logger.error(f"Errore nell'estrazione del contenuto da {file_path}: {e}")
         raise HTTPException(status_code=500, detail=f"Errore nell'estrazione del contenuto da {file_path}")
@@ -132,8 +134,8 @@ def retrieve_context(query: str) -> List[dict]:
             {
                 "content": doc.page_content,
                 "source": {
-                    "filename": doc.metadata["filename"],
-                    "page_number": doc.metadata["page_number"]
+                    "filename": doc.metadata.get("filename", "sconosciuto"),
+                    "page_number": doc.metadata.get("page_number", "n/a")
                 }
             }
             for doc in docs
@@ -152,23 +154,9 @@ class ChatRequest(BaseModel):
 @app.post("/v1/chat/completions")
 async def chat_completion(request: ChatRequest):
     try:
-        model_config = choose_model()
-        data = {
-            "messages": request.messages,
-            "temperature": request.temperature
-        }
-
-        if ACTIVE_MODEL == "claude-v1":
-            data["prompt"] = "\n".join([msg["content"] for msg in request.messages])
-
-        response = requests.post(model_config["url"], json=data, headers=model_config["headers"])
-        response.raise_for_status()
-
-        response_data = response.json()
-        bot_response = response_data.get("choices", [{}])[0].get("message", {}).get("content", "") \
-            if ACTIVE_MODEL == "gpt-4" else response_data.get("completion", "")
-
-        return {"llm_response": bot_response}
+        llm = get_llm()
+        response = llm.predict_messages(messages=request.messages, temperature=request.temperature)
+        return {"llm_response": response.content}
     except Exception as e:
         logger.error(f"Errore nel completamento della chat: {e}")
         raise HTTPException(status_code=500, detail=f"Errore nel completamento della chat: {e}")
