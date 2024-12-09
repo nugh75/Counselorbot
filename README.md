@@ -36,8 +36,6 @@ Artificial Intelligence (AI) is transforming education, offering new opportuniti
 ### Prerequisites
 Before installing CounselorBot, ensure you have the following:
 - **Python 3.8+**
-- **Node.js 14+** (for the frontend)
-- **npm or yarn** (Node package manager)
 - Basic familiarity with Python and JavaScript environments
 
 ### Steps to Install
