@@ -178,7 +178,8 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     messages: List[Message]
     temperature: float = 0.7
-    model: str = "hugging-quants/llama-3.2-3b-instruct"
+    model: str = "qwen2.5-coder-7b-instruct"
+    # model: str = "hugging-quants/llama-3.2-3b-instruct"
 
 # Endpoint per completamento della chat con fonti
 @app.post("/v1/chat/completions")
