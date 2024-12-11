@@ -1,0 +1,25 @@
+
+# Caricare un file nel database
+curl -X POST "http://127.0.0.1:8000/faiss/upload" -F "file=@/path/to/your/file.pdf"
+
+# Elencare i documenti nel database
+curl -X GET "http://127.0.0.1:8000/faiss/list"
+
+# Rimuovere un file specifico dal database
+curl -X DELETE "http://127.0.0.1:8000/faiss/remove-file/filename.pdf"
+# Esempio (con spazi codificati):
+curl -X DELETE "http://127.0.0.1:8000/faiss/remove-file/Imparare%20a%20dirigere%20se%20stessi.pdf"
+
+# Svuotare completamente il database
+curl -X DELETE "http://127.0.0.1:8000/faiss/reset"
+
+# Cercare contenuti nel database
+curl -X GET "http://127.0.0.1:8000/faiss/retrieve?query=your_query"
+# Esempio:
+curl -X GET "http://127.0.0.1:8000/faiss/retrieve?query=autovalutazione"
+
+# Verifica dello stato del server
+curl -X GET "http://127.0.0.1:8000/health"
+
+# Debug del database
+curl -X GET "http://127.0.0.1:8000/debug/faiss"
