@@ -2,15 +2,15 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Counselorbot - Tutor Orientatore</title>
-    <link rel="stylesheet" href="styles.css"/>
+    <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
     <!-- Icona ridotta (widget) -->
     <div class="chat-widget" id="chat-widget">
         <div class="chat-widget-icon">
-            <img src="bussola.png" alt="Icona Bussola" class="widget-icon"/>
+            <img src="bussola.png" alt="Icona Bussola" class="widget-icon" />
             <span class="widget-text">Counselorbot</span>
         </div>
     </div>
@@ -19,28 +19,53 @@
     <div class="chat-container" id="chat-container">
         <header class="chat-header">
             <div class="chat-header-content">
-                <img src="bussola.png" alt="Logo Counselorbot" class="chat-logo"/>
+                <img src="bussola.png" alt="Logo Counselorbot" class="chat-logo" />
                 <h1 class="chat-title">Counselorbot - Bot Orientatore</h1>
                 <button class="close-btn" id="close-chat" aria-label="Chiudi chat">&times;</button>
             </div>
         </header>
-
-
 
         <section class="chat-messages" id="chat-messages">
             <!-- Messaggi della chat inseriti dinamicamente -->
         </section>
 
         <section class="chat-input-area">
-            <!-- Testo dinamico sopra l'input -->
+            <!-- Domande iniziali -->
+            <div id="initial-questions" class="initial-questions">
+                <label>
+                    Nome:
+                    <input type="text" id="user-name" placeholder="Inserisci il tuo nome">
+                </label>
+                <label>
+                    Età:
+                    <input type="number" id="user-age" placeholder="Inserisci la tua età">
+                </label>
+                <label>
+                    Sei uno:
+                    <select id="user-role">
+                        <option value="studente">Studente</option>
+                        <option value="insegnante">Insegnante</option>
+                    </select>
+                </label>
+                <button id="submit-info">Invia Informazioni</button>
+            </div>
 
-            <div class="input-wrapper">
-                <textarea id="user-input" placeholder="Inserisci la tua domanda sul tuo percorso formativo..." rows="1"></textarea>
+            <!-- Area di input della chat -->
+            <div class="input-wrapper hidden" id="chat-input-wrapper">
+                <textarea id="user-input" placeholder="Inserisci la tua domanda..." rows="1"></textarea>
                 <button id="send-button" aria-label="Invia messaggio" title="Invia messaggio">
                     <svg viewBox="0 0 24 24" width="24" height="24">
                         <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
                     </svg>
                 </button>
+            </div>
+
+            <!-- Caricamento file -->
+            <div class="file-upload-wrapper hidden" id="file-upload-wrapper">
+                <label>
+                    Carica un PDF:
+                    <input type="file" id="upload-pdf" accept="application/pdf">
+                </label>
             </div>
         </section>
 
@@ -53,21 +78,5 @@
     </div>
 
     <script src="chatbot.js"></script>
-    <script>
-        // Script per aprire/chiudere il chatbot
-        const chatWidget = document.getElementById('chat-widget');
-        const chatContainer = document.getElementById('chat-container');
-        const closeChat = document.getElementById('close-chat');
-
-        chatWidget.addEventListener('click', () => {
-            chatContainer.classList.add('open');
-            chatWidget.classList.add('hidden');
-        });
-
-        closeChat.addEventListener('click', () => {
-            chatContainer.classList.remove('open');
-            chatWidget.classList.remove('hidden');
-        });
-    </script>
 </body>
 </html>
