@@ -15,6 +15,61 @@ document.addEventListener('DOMContentLoaded', async () => {
     const userRoleInput = document.getElementById('user-role');
     const uploadPdfInput = document.getElementById('upload-pdf');
 
+    // Aggiungi questo dopo gli elementi principali
+    const fullscreenButton = document.createElement('button');
+    fullscreenButton.id = 'fullscreen-button';
+    fullscreenButton.innerHTML = '⛶'; // Simbolo per fullscreen
+    fullscreenButton.title = 'Modalità schermo intero';
+    chatContainer.querySelector('.chat-header-content').appendChild(fullscreenButton);
+
+    // Aggiungi i pulsanti per il controllo del testo dopo il pulsante fullscreen
+    const fontControls = document.createElement('div');
+    fontControls.className = 'font-controls';
+
+    const decreaseFontBtn = document.createElement('button');
+    decreaseFontBtn.innerHTML = 'A-';
+    decreaseFontBtn.className = 'font-control-btn';
+    decreaseFontBtn.title = 'Diminuisci testo';
+
+    const increaseFontBtn = document.createElement('button');
+    increaseFontBtn.innerHTML = 'A+';
+    increaseFontBtn.className = 'font-control-btn';
+    increaseFontBtn.title = 'Aumenta testo';
+
+    fontControls.appendChild(decreaseFontBtn);
+    fontControls.appendChild(increaseFontBtn);
+
+    chatContainer.querySelector('.chat-header-content').appendChild(fontControls);
+
+    // Stati della chat
+    const CHAT_STATES = {
+        WIDGET: 'widget',
+        SIDEBAR: 'sidebar',
+        FULLSCREEN: 'fullscreen'
+    };
+
+    let currentState = CHAT_STATES.WIDGET;
+
+    // Funzione per gestire la transizione degli stati
+    function updateChatState(newState) {
+        switch(newState) {
+            case CHAT_STATES.WIDGET:
+                chatContainer.classList.remove('open', 'fullscreen');
+                chatWidget.classList.remove('hidden');
+                break;
+            case CHAT_STATES.SIDEBAR:
+                chatContainer.classList.add('open');
+                chatContainer.classList.remove('fullscreen');
+                chatWidget.classList.add('hidden');
+                break;
+            case CHAT_STATES.FULLSCREEN:
+                chatContainer.classList.add('open', 'fullscreen');
+                chatWidget.classList.add('hidden');
+                break;
+        }
+        currentState = newState;
+    }
+
     // Stato della chat
     let messageHistory = [];
 
@@ -46,16 +101,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Carica le istruzioni iniziali
     await loadInstructions();
 
-    // Funzione per espandere la chat
+    // Click sul widget
     chatWidget.addEventListener('click', () => {
-        chatContainer.classList.add('open');
-        chatWidget.classList.add('hidden');
+        updateChatState(CHAT_STATES.SIDEBAR);
     });
 
-    // Funzione per chiudere la chat
+    // Click sul pulsante fullscreen
+    fullscreenButton.addEventListener('click', () => {
+        if (currentState === CHAT_STATES.SIDEBAR) {
+            updateChatState(CHAT_STATES.FULLSCREEN);
+            fullscreenButton.innerHTML = '⊏'; // Icona per tornare alla modalità laterale
+        } else {
+            updateChatState(CHAT_STATES.SIDEBAR);
+            fullscreenButton.innerHTML = '⛶'; // Icona per espandere
+        }
+    });
+
+    // Click sul pulsante chiudi
     closeChat.addEventListener('click', () => {
-        chatContainer.classList.remove('open');
-        chatWidget.classList.remove('hidden');
+        updateChatState(CHAT_STATES.WIDGET);
     });
 
     // Messaggio di benvenuto
@@ -253,4 +317,41 @@ document.addEventListener('DOMContentLoaded', async () => {
         userInput.disabled = disabled;
         sendButton.disabled = disabled;
     }
+
+    // Gestione dimensione del testo
+    let currentFontSize = 14; // dimensione base
+    const minFontSize = 12;
+    const maxFontSize = 20;
+    const stepSize = 2;
+
+    function updateFontSize(change) {
+        const newSize = currentFontSize + change;
+        if (newSize >= minFontSize && newSize <= maxFontSize) {
+            currentFontSize = newSize;
+            
+            // Applica le dimensioni relative a tutti gli elementi
+            const root = document.documentElement;
+            root.style.setProperty('--base-font-size', `${currentFontSize}px`);
+            
+            // Aggiorna dimensioni specifiche per vari elementi
+            const fontSizeMap = {
+                '.message': '1em',
+                '.widget-text': '0.85em',
+                '.chat-title': '1rem',
+                '.initial-questions': '0.9em',
+                '.context-details': '0.85em',
+                '.context-details pre': '0.8em',
+                '#user-input': '0.9em',
+                '.chat-footer': '0.75em'
+            };
+
+            Object.entries(fontSizeMap).forEach(([selector, size]) => {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach(el => el.style.fontSize = size);
+            });
+        }
+    }
+
+    decreaseFontBtn.addEventListener('click', () => updateFontSize(-stepSize));
+    increaseFontBtn.addEventListener('click', () => updateFontSize(stepSize));
 });
