@@ -164,7 +164,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         formData.append('file', file);
 
         try {
-            const response = await fetch('http://localhost:8000/upload-and-process', {
+            const response = await fetch('http://78.211.4.128:8000/upload-and-process', {
                 method: 'POST',
                 body: formData,
             });
@@ -212,7 +212,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 userInput.style.height = 'auto'; // Resetta altezza dopo invio
 
                 // Invio al backend
-                const response = await fetch('http://localhost:8000/v1/chat/completions', {
+                const response = await fetch('http://78.211.4.128:8000/v1/chat/completions', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
