@@ -2,8 +2,8 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.embeddings.huggingface import HuggingFaceEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 from langchain_openai import ChatOpenAI
@@ -35,33 +35,17 @@ os.makedirs(DB_FOLDER, exist_ok=True)
 
 # Configurazione embeddings tramite HuggingFace
 HUGGINGFACE_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-embeddings = HuggingFaceEmbeddings(model_name=HUGGINGFACE_MODEL_NAME, cache_folder="./huggingface_cache")
+embeddings = HuggingFaceEmbeddings(model_name=HUGGINGFACE_MODEL_NAME)
 logger.info(f"Embeddings configurati con il modello {HUGGINGFACE_MODEL_NAME}")
 
 # Configurazione Database FAISS
-def create_faiss_database():
-    """
-    Crea un nuovo database FAISS a partire dai dati originali.
-    """
-    logger.info("Creazione di un nuovo database FAISS.")
-    documents = [
-        Document(page_content="Esempio di contenuto", metadata={"filename": "esempio.pdf", "page_number": 1}),
-        # Aggiungi qui i tuoi documenti
-    ]
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-    texts = text_splitter.split_documents(documents)
-    db = FAISS.from_documents(texts, embeddings)
-    db.save_local(db_path)
-    return db
-
 try:
     db_path = os.path.join(DB_FOLDER, "my_database")
-    faiss_index = FAISS.load_local(db_path, embeddings, allow_dangerous_deserialization=True)
+    faiss_index = FAISS.load_local(db_path, embeddings)
     logger.info(f"Database FAISS caricato da {db_path}")
 except Exception as e:
     logger.error(f"Errore nel caricamento del database FAISS: {e}")
-    logger.info("Creazione di un nuovo database FAISS.")
-    faiss_index = create_faiss_database()
+    faiss_index = None
 
 # Inizializzazione FastAPI
 app = FastAPI()
@@ -128,6 +112,8 @@ def extract_content(file_path: str) -> List[str]:
         logger.error(f"Errore durante l'elaborazione del file {file_path}: {e}")
         raise HTTPException(status_code=500, detail="Errore durante l'elaborazione del file.")
 
+# Import e configurazione (come già nel tuo codice)
+
 # Funzione per estrarre testo da PDF
 def extract_text_from_pdf(file_path: str) -> str:
     try:
@@ -162,6 +148,9 @@ async def upload_and_process(file: UploadFile = File(...)):
         logger.error(f"Errore durante l'elaborazione del file: {e}")
         raise HTTPException(status_code=500, detail="Errore durante l'elaborazione del file.")
 
+# Resto degli endpoint e configurazione
+
+
 # Route per servire index.html
 @app.get("/", response_class=FileResponse)
 async def serve_index():
@@ -188,7 +177,7 @@ async def chat_completion(request: ChatRequest):
             return {"llm_response": "Non ho trovato contesto rilevante. Rispondo comunque alla domanda.", "context_chunks": []}
 
         context_text = "\n".join([
-            f"\u2022 {item['content']} (Fonte: {item['source']['filename']}, Pagina: {item['source']['page_number']})"
+            f"• {item['content']} (Fonte: {item['source']['filename']}, Pagina: {item['source']['page_number']})"
             for item in context_with_sources
         ])
 
