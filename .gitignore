@@ -163,3 +163,4 @@ cython_debug/
 File/
 uploads/
 myenv
+huggingface_cache/
