@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -56,16 +56,6 @@ except Exception as e:
     logger.error(f"Errore nel caricamento del database FAISS: {e}")
     logger.info("Creazione di un nuovo database FAISS.")
     faiss_index = create_faiss_database()
-
-# Configurazione del server LLM locale
-LLM_SERVER_URL = "http://localhost:1234/v1/chat/completions"
-MODEL_NAME = "qwen2.5-coder-7b-instruct"  # Nome del modello utilizzato da LMStudio - reso globale
-
-# Modello per richieste di completamento
-class ChatRequest(BaseModel):
-    messages: List[dict]
-    temperature: float = 0.7
-    model: str = MODEL_NAME # Aggiunto il model qui, con valore di default
 
 # Inizializzazione FastAPI
 app = FastAPI()
@@ -166,6 +156,26 @@ async def upload_and_process(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Errore durante l'elaborazione del file: {e}")
         raise HTTPException(status_code=500, detail="Errore durante l'elaborazione del file.")
+
+# Route per servire index.html
+@app.get("/", response_class=FileResponse)
+async def serve_index():
+    index_file = os.path.join(STATIC_FOLDER, "index.html")
+    if not os.path.exists(index_file):
+        logger.error("Il file index.html non è stato trovato.")
+        raise HTTPException(status_code=404, detail="Il file index.html non è disponibile.")
+    return FileResponse(index_file)
+
+# Configurazione del server LLM locale
+LLM_SERVER_URL = "http://localhost:1234/v1/chat/completions"
+MODEL_NAME = "qwen2.5-coder-7b-instruct"  # Nome del modello utilizzato da LMStudio - reso globale
+
+
+# Endpoint per completamento della chat
+class ChatRequest(BaseModel):
+    messages: List[dict]
+    temperature: float = 0.7
+    model: str = MODEL_NAME # Aggiunto il model qui, con valore di default
 
 # Endpoint per completamento della chat
 @app.post("/v1/chat/completions")
