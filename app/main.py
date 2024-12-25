@@ -1,41 +1,31 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
-from langchain_openai import ChatOpenAI
-# from pydantic import BaseModel
+from pydantic import BaseModel
 from typing import List
 import os
 import logging
+import requests
 from PyPDF2 import PdfReader
 from docx import Document as DocxDocument
 from pptx import Presentation
-from dotenv import load_dotenv
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-
-
 
 # Configurazione logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Caricamento variabili di ambiente
-# load_dotenv()
-# OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
 # Directory Configurazione
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_FOLDER = os.path.join(BASE_DIR, "static")
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 DB_FOLDER = os.path.join(BASE_DIR, "db")
-os.makedirs(STATIC_FOLDER, exist_ok=True)
+STATIC_FOLDER = os.path.join(BASE_DIR, "static") # Aggiunto STATIC_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(DB_FOLDER, exist_ok=True)
+os.makedirs(STATIC_FOLDER, exist_ok=True) # Crea la cartella statica se non esiste
 
 # Configurazione embeddings tramite HuggingFace
 HUGGINGFACE_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -50,7 +40,7 @@ def create_faiss_database():
     logger.info("Creazione di un nuovo database FAISS.")
     documents = [
         Document(page_content="Esempio di contenuto", metadata={"filename": "esempio.pdf", "page_number": 1}),
-        # Aggiungi qui i tuoi documenti
+        # Aggiungi qui i tuoi documenti iniziali se necessario
     ]
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     texts = text_splitter.split_documents(documents)
@@ -67,6 +57,16 @@ except Exception as e:
     logger.info("Creazione di un nuovo database FAISS.")
     faiss_index = create_faiss_database()
 
+# Configurazione del server LLM locale
+LLM_SERVER_URL = "http://localhost:1234/v1/chat/completions"
+MODEL_NAME = "qwen2.5-coder-7b-instruct"  # Nome del modello utilizzato da LMStudio - reso globale
+
+# Modello per richieste di completamento
+class ChatRequest(BaseModel):
+    messages: List[dict]
+    temperature: float = 0.7
+    model: str = MODEL_NAME # Aggiunto il model qui, con valore di default
+
 # Inizializzazione FastAPI
 app = FastAPI()
 
@@ -80,6 +80,7 @@ app.add_middleware(
 )
 
 # Monta i file statici
+from fastapi.staticfiles import StaticFiles
 app.mount("/static", StaticFiles(directory=STATIC_FOLDER), name="static")
 
 # Funzione per recuperare contesto dal database FAISS
@@ -166,96 +167,68 @@ async def upload_and_process(file: UploadFile = File(...)):
         logger.error(f"Errore durante l'elaborazione del file: {e}")
         raise HTTPException(status_code=500, detail="Errore durante l'elaborazione del file.")
 
-# Route per servire index.html
-@app.get("/", response_class=FileResponse)
-async def serve_index():
-    index_file = os.path.join(STATIC_FOLDER, "index.html")
-    if not os.path.exists(index_file):
-        logger.error("Il file index.html non è stato trovato.")
-        raise HTTPException(status_code=404, detail="Il file index.html non è disponibile.")
-    return FileResponse(index_file)
-
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-
-# Configura il modello LLaMAntino
-MODEL_NAME = "swap-uniba/LLaMAntino-3-ANITA-8B-Inst-DPO-ITA"
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map="auto", torch_dtype=torch.float16)
-
+# Endpoint per completamento della chat
 @app.post("/v1/chat/completions")
 async def chat_completion(request: ChatRequest):
     try:
+        # Ultimo messaggio dell'utente
         user_message = request.messages[-1]["content"]
         logger.info(f"Messaggio ricevuto dall'utente: {user_message}")
 
         # Recupero del contesto dal database FAISS
         context_with_sources = retrieve_context(user_message)
-        if not context_with_sources:
-            logger.warning("Nessun contesto trovato.")
-            return {"llm_response": "Non ho trovato contesto rilevante. Rispondo comunque alla domanda.", "context_chunks": []}
+        context_chunks = [
+            {
+                "content": item["content"],
+                "source": {
+                    "filename": item["source"]["filename"],
+                    "page_number": item["source"]["page_number"]
+                }
+            }
+            for item in context_with_sources
+        ]
 
-        # Preparazione del contesto
+        # Costruzione del contesto
         context_text = "\n".join([
-            f"\u2022 {item['content']} (Fonte: {item['source']['filename']}, Pagina: {item['source']['page_number']})"
+            f"{item['content']} (Fonte: {item['source']['filename']}, Pagina: {item['source']['page_number']})"
             for item in context_with_sources
         ])
-        augmented_input = f"Contesto:\n{context_text}\n\nMessaggio dell'utente:\n{user_message}\n"
 
-        # Tokenizzazione dell'input
-        inputs = tokenizer(augmented_input, return_tensors="pt", max_length=2048, truncation=True)
+        # Messaggi arricchiti con il contesto
+        augmented_messages = [
+            {"role": "system", "content": f"Informazioni utili:\n{context_text}"},
+        ] + request.messages
 
-        # Generazione della risposta
-        outputs = model.generate(
-            inputs.input_ids,
-            max_length=512,
-            num_return_sequences=1,
-            temperature=request.temperature,
-            top_k=50,
-            top_p=0.95
-        )
-        response_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        logger.info(f"Risposta generata: {response_text}")
+        # Prepara la richiesta per LMStudio
+        headers = {"Content-Type": "application/json"}
+        data = {
+            "model": request.model,  # Usa il modello specificato nella richiesta
+            "messages": augmented_messages,
+            "temperature": request.temperature,
+            "stream": False  # Disattiva lo streaming per LMStudio
+        }
 
-        return {"llm_response": response_text, "context_chunks": context_with_sources}
+        logger.info(f"Inviando dati a LMStudio: {data}")
+        response = requests.post(LLM_SERVER_URL, json=data, headers=headers)
+
+        # Controllo degli errori della risposta
+        if response.status_code != 200:
+            logger.error(f"Errore nella richiesta a LMStudio: {response.text}")
+            raise HTTPException(status_code=500, detail="Errore nella comunicazione con LMStudio.")
+
+        # Risposta ricevuta da LMStudio
+        response_data = response.json()
+        logger.info(f"Risposta ricevuta da LMStudio: {response_data}")
+        bot_response = response_data["choices"][0]["message"]["content"]
+
+        # Restituzione della risposta e del contesto
+        return {
+            "llm_response": bot_response,
+            "context_chunks": context_chunks
+        }
     except Exception as e:
-        logger.error(f"Errore nel completamento della chat: {e}")
-        raise HTTPException(status_code=500, detail="Errore nel completamento della chat.")
-
-
-# Endpoint per completamento della chat
-# class ChatRequest(BaseModel):
-#     messages: List[dict]
-#     temperature: float = 0.7
-
-# @app.post("/v1/chat/completions")
-# async def chat_completion(request: ChatRequest):
-#     try:
-#         user_message = request.messages[-1]["content"]
-#         logger.info(f"Messaggio ricevuto dall'utente: {user_message}")
-
-#         context_with_sources = retrieve_context(user_message)
-#         if not context_with_sources:
-#             logger.warning("Nessun contesto trovato.")
-#             return {"llm_response": "Non ho trovato contesto rilevante. Rispondo comunque alla domanda.", "context_chunks": []}
-
-#         context_text = "\n".join([
-#             f"\u2022 {item['content']} (Fonte: {item['source']['filename']}, Pagina: {item['source']['page_number']})"
-#             for item in context_with_sources
-#         ])
-
-#         augmented_messages = [
-#             {"role": "system", "content": f"Usa queste informazioni:\n{context_text}"}
-#         ] + request.messages
-
-#         llm = ChatOpenAI(model="gpt-4o-mini", openai_api_key=OPENAI_API_KEY)
-#         response = llm.predict_messages(messages=augmented_messages, temperature=request.temperature)
-#         logger.info(f"Risposta dal modello: {response.content}")
-
-#         return {"llm_response": response.content, "context_chunks": context_with_sources}
-#     except Exception as e:
-#         logger.error(f"Errore nel completamento della chat: {e}")
-#         raise HTTPException(status_code=500, detail="Errore nel completamento della chat.")
+        logger.error(f"Errore nel completamento della chat: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Errore nel completamento della chat: {str(e)}")
 
 # Endpoint per caricamento file
 @app.post("/upload")
