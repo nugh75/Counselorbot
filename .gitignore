@@ -164,3 +164,4 @@ File/
 uploads/
 myenv
 huggingface_cache/
+.DS_store
