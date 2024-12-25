@@ -7,7 +7,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
+# from pydantic import BaseModel
 from typing import List
 import os
 import logging
@@ -15,14 +15,18 @@ from PyPDF2 import PdfReader
 from docx import Document as DocxDocument
 from pptx import Presentation
 from dotenv import load_dotenv
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+
+
 
 # Configurazione logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Caricamento variabili di ambiente
-load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# load_dotenv()
+# OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Directory Configurazione
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -171,10 +175,13 @@ async def serve_index():
         raise HTTPException(status_code=404, detail="Il file index.html non è disponibile.")
     return FileResponse(index_file)
 
-# Endpoint per completamento della chat
-class ChatRequest(BaseModel):
-    messages: List[dict]
-    temperature: float = 0.7
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+
+# Configura il modello LLaMAntino
+MODEL_NAME = "swap-uniba/LLaMAntino-3-ANITA-8B-Inst-DPO-ITA"
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map="auto", torch_dtype=torch.float16)
 
 @app.post("/v1/chat/completions")
 async def chat_completion(request: ChatRequest):
@@ -182,28 +189,73 @@ async def chat_completion(request: ChatRequest):
         user_message = request.messages[-1]["content"]
         logger.info(f"Messaggio ricevuto dall'utente: {user_message}")
 
+        # Recupero del contesto dal database FAISS
         context_with_sources = retrieve_context(user_message)
         if not context_with_sources:
             logger.warning("Nessun contesto trovato.")
             return {"llm_response": "Non ho trovato contesto rilevante. Rispondo comunque alla domanda.", "context_chunks": []}
 
+        # Preparazione del contesto
         context_text = "\n".join([
             f"\u2022 {item['content']} (Fonte: {item['source']['filename']}, Pagina: {item['source']['page_number']})"
             for item in context_with_sources
         ])
+        augmented_input = f"Contesto:\n{context_text}\n\nMessaggio dell'utente:\n{user_message}\n"
 
-        augmented_messages = [
-            {"role": "system", "content": f"Usa queste informazioni:\n{context_text}"}
-        ] + request.messages
+        # Tokenizzazione dell'input
+        inputs = tokenizer(augmented_input, return_tensors="pt", max_length=2048, truncation=True)
 
-        llm = ChatOpenAI(model="gpt-4o-mini", openai_api_key=OPENAI_API_KEY)
-        response = llm.predict_messages(messages=augmented_messages, temperature=request.temperature)
-        logger.info(f"Risposta dal modello: {response.content}")
+        # Generazione della risposta
+        outputs = model.generate(
+            inputs.input_ids,
+            max_length=512,
+            num_return_sequences=1,
+            temperature=request.temperature,
+            top_k=50,
+            top_p=0.95
+        )
+        response_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        logger.info(f"Risposta generata: {response_text}")
 
-        return {"llm_response": response.content, "context_chunks": context_with_sources}
+        return {"llm_response": response_text, "context_chunks": context_with_sources}
     except Exception as e:
         logger.error(f"Errore nel completamento della chat: {e}")
         raise HTTPException(status_code=500, detail="Errore nel completamento della chat.")
+
+
+# Endpoint per completamento della chat
+# class ChatRequest(BaseModel):
+#     messages: List[dict]
+#     temperature: float = 0.7
+
+# @app.post("/v1/chat/completions")
+# async def chat_completion(request: ChatRequest):
+#     try:
+#         user_message = request.messages[-1]["content"]
+#         logger.info(f"Messaggio ricevuto dall'utente: {user_message}")
+
+#         context_with_sources = retrieve_context(user_message)
+#         if not context_with_sources:
+#             logger.warning("Nessun contesto trovato.")
+#             return {"llm_response": "Non ho trovato contesto rilevante. Rispondo comunque alla domanda.", "context_chunks": []}
+
+#         context_text = "\n".join([
+#             f"\u2022 {item['content']} (Fonte: {item['source']['filename']}, Pagina: {item['source']['page_number']})"
+#             for item in context_with_sources
+#         ])
+
+#         augmented_messages = [
+#             {"role": "system", "content": f"Usa queste informazioni:\n{context_text}"}
+#         ] + request.messages
+
+#         llm = ChatOpenAI(model="gpt-4o-mini", openai_api_key=OPENAI_API_KEY)
+#         response = llm.predict_messages(messages=augmented_messages, temperature=request.temperature)
+#         logger.info(f"Risposta dal modello: {response.content}")
+
+#         return {"llm_response": response.content, "context_chunks": context_with_sources}
+#     except Exception as e:
+#         logger.error(f"Errore nel completamento della chat: {e}")
+#         raise HTTPException(status_code=500, detail="Errore nel completamento della chat.")
 
 # Endpoint per caricamento file
 @app.post("/upload")
